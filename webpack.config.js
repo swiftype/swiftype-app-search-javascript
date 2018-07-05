@@ -6,7 +6,7 @@ module.exports = {
     './src/swiftype_app_search.js'
   ],
   output: {
-    path: path.join(__dirname, 'public'),
+    path: path.join(__dirname, 'dist'),
     filename: 'bundle.js',
     library: 'SwiftypeAppSearch',
     libraryTarget: 'umd'
