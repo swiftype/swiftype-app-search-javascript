@@ -12,6 +12,8 @@ export default class Client {
     this.clickPath = `engines/${this.engineName}/click`
   }
 
+  // Test
+
   /**
    * Sends a search request to the Swiftype App Search Api
    *
