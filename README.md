@@ -11,6 +11,7 @@
 - [Browser support](#browser-support)
 - [Usage](#usage)
 - [Running tests](#running-tests)
+- [Development](#development)
 - [FAQ](#faq-)
 - [Contribute](#contribute-)
 - [License](#license-)
