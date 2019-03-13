@@ -2,6 +2,7 @@
 
 import ResultList from "./result_list";
 import Filters from "./filters";
+import Facets from "./facets";
 import { request } from "./request.js";
 
 const SEARCH_TYPES = {
@@ -82,22 +83,14 @@ export default class Client {
    * @returns {Promise<ResultList>} a Promise that returns a {ResultList} when resolved, otherwise throws an Error.
    */
   search(query, options = {}) {
-    const {
-      disjunctiveFacets,
-      disjunctiveFacetsAnalyticsTags,
-      ...validOptions
-    } = options;
+    const { disjunctiveFacetsAnalyticsTags, ...validOptions } = options;
 
     const params = Object.assign({ query: query }, validOptions);
 
-    if (disjunctiveFacets && disjunctiveFacets.length > 0) {
-      return this._performDisjunctiveSearch(
-        params,
-        disjunctiveFacets,
-        disjunctiveFacetsAnalyticsTags
-      ).then(formatResultsJSON);
-    }
-    return this._performSearch(params).then(formatResultsJSON);
+    return this._performDisjunctiveSearch(
+      params,
+      disjunctiveFacetsAnalyticsTags
+    ).then(formatResultsJSON);
   }
 
   /**
@@ -142,53 +135,51 @@ export default class Client {
    */
   _performDisjunctiveSearch(
     params,
-    disjunctiveFacets,
     disjunctiveFacetsAnalyticsTags = ["Facet-Only"]
   ) {
-    const baseQueryPromise = this._performSearch(params);
+    const facets = new Facets(params.facets);
+    const baseQueryParams = {
+      ...params,
+      facets: facets.getBaseQueryFacets(),
+      filters: facets.addFacetFilters(params.filters)
+    };
 
-    const filters = new Filters(params.filters);
-    const appliedFilers = filters.getListOfAppliedFilters();
-    const listOfAppliedDisjunctiveFilters = appliedFilers.filter(filter => {
-      return disjunctiveFacets.includes(filter);
-    });
+    baseQueryParams.facets = facets.getBaseQueryFacets();
+    baseQueryParams.filters = facets.addFacetFilters(params.filters);
 
-    if (!listOfAppliedDisjunctiveFilters.length) {
-      return baseQueryPromise;
-    }
+    const baseQueryPromise = this._performSearch(baseQueryParams);
 
     const page = params.page || {};
-
-    // We intentionally drop passed analytics tags here so that we don't get
-    // double counted search analytics in the dashboard from disjunctive
-    // calls
     const analytics = params.analytics || {};
     analytics.tags = disjunctiveFacetsAnalyticsTags;
 
-    const disjunctiveQueriesPromises = listOfAppliedDisjunctiveFilters.map(
-      appliedDisjunctiveFilter => {
-        return this._performSearch({
+    const facetQueriesPromises = Object.entries(facets.getStickyFacets()).map(
+      ([name, definition]) => {
+        var facetQueryParams = {
           ...params,
-          filters: filters.removeFilter(appliedDisjunctiveFilter).filtersJSON,
           page: {
             ...page,
-            // Set this to 0 for performance, since disjunctive queries
-            // don't need results
+            // Set this to 0 for performance, since disjunctive queries don't need results.
             size: 0
           },
           analytics,
-          facets: {
-            [appliedDisjunctiveFilter]: params.facets[appliedDisjunctiveFilter]
-          }
-        });
+          facets: { [name]: definition },
+          filters: facets.addFacetFilters(params.filters, name)
+        };
+
+        return this._performSearch(facetQueryParams);
       }
     );
 
-    return Promise.all([baseQueryPromise, ...disjunctiveQueriesPromises]).then(
-      ([baseQueryResults, ...disjunctiveQueries]) => {
-        disjunctiveQueries.forEach(disjunctiveQueryResults => {
+    if (facetQueriesPromises.length == 0) {
+      return baseQueryPromise;
+    }
+
+    return Promise.all([baseQueryPromise, ...facetQueriesPromises]).then(
+      ([baseQueryResults, ...facetQueries]) => {
+        facetQueries.forEach(facetQueryResults => {
           const [facetName, facetValue] = Object.entries(
-            disjunctiveQueryResults.facets
+            facetQueryResults.facets
           )[0];
           baseQueryResults.facets[facetName] = facetValue;
         });
