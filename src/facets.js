@@ -1,4 +1,4 @@
-function removeInvalidPropertyFromFacetDefinition(facetDefinition) {
+function cleanFacetDefinition(facetDefinition) {
   var newDefinition = Object.assign({}, facetDefinition);
 
   if (newDefinition.sticky !== null) delete newDefinition.sticky;
@@ -6,6 +6,22 @@ function removeInvalidPropertyFromFacetDefinition(facetDefinition) {
   if (newDefinition.currentValue !== null) delete newDefinition.currentValue;
 
   return newDefinition;
+}
+
+function filterFacets(facets, filterFunction) {
+  return Object.entries(facets)
+    .filter(filterFunction)
+    .map(([field, facet]) => [field, cleanFacetDefinition(facet)])
+    .reduce(function(acc, [field, facet]) {
+      acc[field] = facet;
+      return acc;
+    }, {});
+}
+
+function isStickyFacet(facetDefinition) {
+  return (
+    facetDefinition.sticky === true && facetDefinition.currentValue !== null
+  );
 }
 
 /**
@@ -18,48 +34,31 @@ export default class Facets {
   }
 
   getStickyFacets() {
-    return Object.entries(this.facetsJSON ? this.facetsJSON : {})
-      .filter(([facetName, facetDefinition]) => facetDefinition.sticky === true)
-      .map(([facetName, facetDefinition]) => [
-        facetName,
-        removeInvalidPropertyFromFacetDefinition(facetDefinition)
-      ])
-      .reduce(function(acc, [facetName, facetDefinition]) {
-        acc[facetName] = facetDefinition;
-        return acc;
-      }, {});
+    return filterFacets(this.facetsJSON, ([field, facet]) =>
+      isStickyFacet(facet)
+    );
   }
 
   getBaseQueryFacets() {
-    return Object.entries(this.facetsJSON ? this.facetsJSON : {})
-      .filter(([facetName, facetDefinition]) => facetDefinition.sticky !== true)
-      .map(([facetName, facetDefinition]) => [
-        facetName,
-        removeInvalidPropertyFromFacetDefinition(facetDefinition)
-      ])
-      .reduce(function(acc, [facetName, facetDefinition]) {
-        acc[facetName] = facetDefinition;
-        return acc;
-      }, {});
+    return filterFacets(
+      this.facetsJSON,
+      ([field, facet]) => !isStickyFacet(facet)
+    );
   }
 
   getFacetFilters(exclude) {
     return Object.entries(this.facetsJSON ? this.facetsJSON : {})
       .filter(
-        ([facetName, facetDefinition]) =>
-          facetDefinition.currentValue !== null && facetName !== exclude
+        ([field, facet]) => facet.currentValue != null && field !== exclude
       )
-      .map(([facetName, facetDefinition]) => {
+      .map(([field, facet]) => {
         const filter = {};
-        if (
-          facetDefinition.sticky ||
-          !Array.isArray(facetDefinition.currentValue)
-        ) {
-          filter[facetName] = facetDefinition.currentValue;
+        if (facet.sticky || !Array.isArray(facet.currentValue)) {
+          filter[field] = facet.currentValue;
         } else {
-          filter["all"] = facetDefinition.currentValue.map(currentValue => {
+          filter["all"] = facet.currentValue.map(currentValue => {
             const currentValueFilter = {};
-            currentValueFilter[facetName] = currentValue;
+            currentValueFilter[field] = currentValue;
             return currentValueFilter;
           });
         }
@@ -68,12 +67,14 @@ export default class Facets {
   }
 
   addFacetFilters(baseFilters, exclude) {
-    var filters =
-      baseFilters && baseFilters["all"]
-        ? baseFilters["all"]
-        : baseFilters
-          ? [baseFilters]
-          : [];
+    var filters = [];
+
+    if (baseFilters && baseFilters["all"]) {
+      filters = baseFilters["all"];
+    } else if (baseFilters && baseFilters) {
+      filters = [baseFilters];
+    }
+
     var facetsFilters = this.getFacetFilters(exclude);
 
     if (filters || facetsFilters.length > 0) {
